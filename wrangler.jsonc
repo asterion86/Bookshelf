@@ -12,7 +12,7 @@
       "binding": "DB",
       "database_name": "bookshelf",
       // Replace with the id `wrangler d1 create bookshelf` prints.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "e660f46a-2898-4ec7-9073-e802e9d1e0d3",
       "migrations_dir": "migrations"
     }
   ],
