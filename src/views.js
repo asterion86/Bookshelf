@@ -217,7 +217,7 @@ export function accountPage({ member, values = {}, detailsError, passwordError, 
       ${detailsError ? html`<p class="error">${detailsError}</p>` : ''}
       <form method="post" action="/account" class="stack">
         <label>Your name <input name="display_name" value="${displayName}" required></label>
-        <label>Username <span class="muted small">(what you log in with)</span>
+        <label>Username <span class="muted small">(what you log in with; capitals don’t matter)</span>
           <input name="username" value="${username}" autocomplete="username" required>
         </label>
         <button class="primary">Save details</button>
@@ -265,7 +265,9 @@ export function signupPage({ error, values = {} }) {
           <input name="invite_code" value="${values.invite_code ?? ''}" required>
         </label>
         <label>Your name <input name="display_name" value="${values.display_name ?? ''}" required></label>
-        <label>Username <input name="username" value="${values.username ?? ''}" autocomplete="username" required></label>
+        <label>Username <span class="muted small">(capitals don’t matter)</span>
+          <input name="username" value="${values.username ?? ''}" autocomplete="username" required>
+        </label>
         <label>Password <input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
         <button class="primary">Create account</button>
       </form>

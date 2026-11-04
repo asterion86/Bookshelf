@@ -20,8 +20,14 @@ const page = (c, title, body, status = 200) =>
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 
-const USERNAME = /^[a-zA-Z0-9_.-]{2,32}$/;
+// Letters from any alphabet (ą, č, š, ž…), digits, dots, dashes, underscores.
+const USERNAME = /^[\p{L}\p{N}_.-]{2,32}$/u;
 const USERNAME_RULES = 'Usernames can use letters, numbers, dots, dashes and underscores.';
+
+// The database only ignores case for A–Z, so usernames are stored and looked
+// up in lowercase to make "Šarūnas" and "šarūnas" the same login. NFC makes
+// "ė" typed as one character or as e + dot match.
+const usernameFrom = (v) => str(v).normalize('NFC').toLowerCase();
 const MIN_PASSWORD = 8;
 
 // --- Accounts --------------------------------------------------------------
@@ -30,7 +36,7 @@ app.get('/login', (c) => page(c, 'Log in', views.loginPage({})));
 
 app.post('/login', async (c) => {
   const form = await c.req.parseBody();
-  const username = str(form.username);
+  const username = usernameFrom(form.username);
   const member = await db.getMemberByUsername(username);
   if (!member || !(await verifyPassword(str(form.password), member.password_hash))) {
     return page(c, 'Log in', views.loginPage({ error: 'Wrong username or password.', username }), 401);
@@ -47,7 +53,7 @@ app.post('/signup', async (c) => {
   const values = {
     invite_code: str(form.invite_code),
     display_name: str(form.display_name),
-    username: str(form.username),
+    username: usernameFrom(form.username),
   };
   const password = typeof form.password === 'string' ? form.password : '';
 
@@ -86,7 +92,7 @@ app.get('/account', (c) => accountPage(c, { saved: c.req.query('saved') }));
 app.post('/account', async (c) => {
   const me = c.get('member');
   const form = await c.req.parseBody();
-  const values = { display_name: str(form.display_name), username: str(form.username) };
+  const values = { display_name: str(form.display_name), username: usernameFrom(form.username) };
 
   let error;
   if (!values.display_name || !values.username) error = 'Please fill in both fields.';
