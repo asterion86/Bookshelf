@@ -3,6 +3,7 @@
   "name": "bookshelf",
   "main": "src/server.js",
   "compatibility_date": "2026-10-01",
+  "workers_dev": true,
 
   // Files in public/ are served directly; everything else goes to the app.
   "assets": { "directory": "./public" },
