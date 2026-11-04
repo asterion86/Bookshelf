@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import * as db from './db.js';
 import * as views from './views.js';
 import {
-  hashPassword, verifyPassword, startSession, endSession, loadMember, requireMember,
+  hashPassword, verifyPassword, startSession, endSession, sessionToken, loadMember, requireMember,
 } from './auth.js';
 
 const app = new Hono();
@@ -19,6 +19,10 @@ const page = (c, title, body, status = 200) =>
   c.html(views.layout({ siteName: c.env.SITE_NAME, title, member: c.get('member'), body }), status);
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
+
+const USERNAME = /^[a-zA-Z0-9_.-]{2,32}$/;
+const USERNAME_RULES = 'Usernames can use letters, numbers, dots, dashes and underscores.';
+const MIN_PASSWORD = 8;
 
 // --- Accounts --------------------------------------------------------------
 
@@ -50,8 +54,8 @@ app.post('/signup', async (c) => {
   let error;
   if (!inviteCode || values.invite_code !== inviteCode) error = 'That group code isn’t right.';
   else if (!values.display_name || !values.username) error = 'Please fill in every field.';
-  else if (!/^[a-zA-Z0-9_.-]{2,32}$/.test(values.username)) error = 'Usernames can use letters, numbers, dots, dashes and underscores.';
-  else if (password.length < 8) error = 'Passwords need at least 8 characters.';
+  else if (!USERNAME.test(values.username)) error = USERNAME_RULES;
+  else if (password.length < MIN_PASSWORD) error = 'Passwords need at least 8 characters.';
   else if (await db.getMemberByUsername(values.username)) error = 'That username is taken.';
   if (error) return page(c, 'Join', views.signupPage({ error, values }), 400);
 
@@ -71,6 +75,48 @@ app.post('/logout', async (c) => {
 
 // Everything below needs a logged-in member.
 app.use('*', requireMember);
+
+// --- Your account ----------------------------------------------------------
+
+const accountPage = (c, props, status = 200) =>
+  page(c, 'Your account', views.accountPage({ member: c.get('member'), ...props }), status);
+
+app.get('/account', (c) => accountPage(c, { saved: c.req.query('saved') }));
+
+app.post('/account', async (c) => {
+  const me = c.get('member');
+  const form = await c.req.parseBody();
+  const values = { display_name: str(form.display_name), username: str(form.username) };
+
+  let error;
+  if (!values.display_name || !values.username) error = 'Please fill in both fields.';
+  else if (!USERNAME.test(values.username)) error = USERNAME_RULES;
+  else {
+    const existing = await db.getMemberByUsername(values.username);
+    if (existing && existing.id !== me.id) error = 'That username is taken.';
+  }
+  if (error) return accountPage(c, { values, detailsError: error }, 400);
+
+  await db.updateMember(me.id, { username: values.username, displayName: values.display_name });
+  return c.redirect('/account?saved=details');
+});
+
+app.post('/account/password', async (c) => {
+  const me = c.get('member');
+  const form = await c.req.parseBody();
+  const current = typeof form.current_password === 'string' ? form.current_password : '';
+  const next = typeof form.new_password === 'string' ? form.new_password : '';
+
+  const { password_hash } = await db.getMemberByUsername(me.username);
+  let error;
+  if (!(await verifyPassword(current, password_hash))) error = 'Your current password isn’t right.';
+  else if (next.length < MIN_PASSWORD) error = 'New passwords need at least 8 characters.';
+  if (error) return accountPage(c, { passwordError: error }, 400);
+
+  await db.updatePassword(me.id, await hashPassword(next));
+  await db.deleteOtherSessions(me.id, sessionToken(c));
+  return c.redirect('/account?saved=password');
+});
 
 // --- Books -----------------------------------------------------------------
 
@@ -131,8 +177,17 @@ async function saveCoverFor(bookId, file, coverUrl) {
   }
 }
 
-app.get('/books/new', (c) =>
-  page(c, 'Add a book', views.bookForm({ action: '/books', heading: 'Add a book' })));
+const newBookForm = (props) =>
+  views.bookForm({ mode: 'new', action: '/books', heading: 'Add a book', ...props });
+
+// After adding, members land back on an empty form (?added=<id>) so they can
+// add their next book straight away.
+app.get('/books/new', async (c) => {
+  const addedId = Number(c.req.query('added'));
+  const added = addedId ? await db.getBook(addedId) : null;
+  const mine = added && added.owner_id === c.get('member').id;
+  return page(c, 'Add a book', newBookForm({ added: mine ? added : null }));
+});
 
 app.post('/books', async (c) => {
   const form = await c.req.parseBody();
@@ -140,13 +195,11 @@ app.post('/books', async (c) => {
   const file = uploadedCover(form);
   const error = formError(book, file);
   if (error) {
-    return page(c, 'Add a book', views.bookForm({
-      book: { ...book, cover_url: book.coverUrl }, action: '/books', heading: 'Add a book', error,
-    }), 400);
+    return page(c, 'Add a book', newBookForm({ book: { ...book, cover_url: book.coverUrl }, error }), 400);
   }
   const id = await db.createBook(c.get('member').id, book);
   await saveCoverFor(id, file, book.coverUrl);
-  return c.redirect(`/books/${id}`);
+  return c.redirect(`/books/new?added=${id}`);
 });
 
 app.get('/books/:id/cover', async (c) => {
@@ -179,7 +232,7 @@ app.get('/books/:id', loadBook, async (c) => {
 
 app.get('/books/:id/edit', loadBook, ownerOnly, (c) => {
   const book = c.get('book');
-  return page(c, 'Edit', views.bookForm({ book, action: `/books/${book.id}/edit`, heading: 'Edit book' }));
+  return page(c, 'Edit', views.bookForm({ book, mode: 'edit', action: `/books/${book.id}/edit`, heading: 'Edit book' }));
 });
 
 app.post('/books/:id/edit', loadBook, ownerOnly, async (c) => {
@@ -190,7 +243,7 @@ app.post('/books/:id/edit', loadBook, ownerOnly, async (c) => {
   const error = formError(book, file);
   if (error) {
     return page(c, 'Edit', views.bookForm({
-      book: { ...book, cover_url: book.coverUrl }, action: `/books/${id}/edit`, heading: 'Edit book', error,
+      book: { ...book, cover_url: book.coverUrl }, mode: 'edit', action: `/books/${id}/edit`, heading: 'Edit book', error,
     }), 400);
   }
   await db.updateBook(id, book);

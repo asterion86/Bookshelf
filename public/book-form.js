@@ -9,11 +9,36 @@ const coverStatus = document.getElementById('cover-status');
 
 const COVER_MAX_PX = 600;
 
+// The cover the last lookup filled in, so a later lookup can clear it without
+// touching a photo the member took or the cover a book already had.
+let lookedUpCover = '';
+
 function showCover(src) {
   preview.src = src;
   preview.hidden = !src;
   removeButton.hidden = !src;
 }
+
+function setLookedUpCover(src) {
+  const ownPhoto = fileInput.files.length > 0;
+  const replaceable = !form.cover_url.value || form.cover_url.value === lookedUpCover;
+  if (ownPhoto || !replaceable) return;
+  form.cover_url.value = src;
+  lookedUpCover = src;
+  showCover(src);
+}
+
+// Browsers restore typed values when going Back to a page; a fresh "Add a
+// book" form should always start empty.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && form.dataset.mode === 'new') {
+    form.reset();
+    lookedUpCover = '';
+    lookupStatus.textContent = '';
+    coverStatus.textContent = '';
+    showCover('');
+  }
+});
 
 // --- ISBN lookup -----------------------------------------------------------
 
@@ -28,18 +53,13 @@ async function lookup() {
   try {
     const res = await fetch(`/api/lookup?isbn=${isbn}`);
     const data = await res.json();
-    if (!data.found) {
-      lookupStatus.textContent = 'Not found — fill it in by hand and add a photo of the cover.';
-      return;
-    }
-    form.title.value = data.title || form.title.value;
-    form.author.value = data.author || form.author.value;
-    // Don't replace a photo the member has just taken.
-    if (data.cover && !fileInput.files.length) {
-      form.cover_url.value = data.cover;
-      showCover(data.cover);
-    }
-    lookupStatus.textContent = `Found it (from ${data.source}).`;
+    // Replace everything from any earlier lookup, found or not.
+    form.title.value = data.found ? data.title || '' : '';
+    form.author.value = data.found ? data.author || '' : '';
+    setLookedUpCover(data.found ? data.cover || '' : '');
+    lookupStatus.textContent = data.found
+      ? `Found it (from ${data.source}).`
+      : 'Not found — fill it in by hand and add a photo of the cover.';
   } catch {
     lookupStatus.textContent = 'Lookup failed — fill it in by hand.';
   } finally {
@@ -88,5 +108,6 @@ fileInput.addEventListener('change', async () => {
 removeButton.addEventListener('click', () => {
   fileInput.value = '';
   form.cover_url.value = '';
+  lookedUpCover = '';
   showCover('');
 });

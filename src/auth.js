@@ -53,6 +53,8 @@ export async function startSession(c, memberId) {
   });
 }
 
+export const sessionToken = (c) => getCookie(c, COOKIE);
+
 export async function endSession(c) {
   const token = getCookie(c, COOKIE);
   if (token) await db.deleteSession(token);

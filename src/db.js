@@ -28,6 +28,14 @@ export function getMember(id) {
   return q('SELECT id, username, display_name FROM members WHERE id = ?', id).first();
 }
 
+export async function updateMember(id, { username, displayName }) {
+  await q('UPDATE members SET username = ?, display_name = ? WHERE id = ?', username, displayName, id).run();
+}
+
+export async function updatePassword(id, passwordHash) {
+  await q('UPDATE members SET password_hash = ? WHERE id = ?', passwordHash, id).run();
+}
+
 export async function listMembers() {
   const { results } = await q(`
     SELECT m.id, m.display_name,
@@ -61,6 +69,11 @@ export async function deleteSession(token) {
   await q('DELETE FROM sessions WHERE token = ?', token).run();
 }
 
+// Logs a member out on every other device, keeping the current session.
+export async function deleteOtherSessions(memberId, keepToken) {
+  await q('DELETE FROM sessions WHERE member_id = ? AND token != ?', memberId, keepToken).run();
+}
+
 // --- Books -----------------------------------------------------------------
 
 // Every book query returns where the book currently is: holder_* is NULL when
@@ -78,8 +91,8 @@ export async function listBooks({ q: search = '', filter = 'all', memberId }) {
   const where = [];
   const params = [];
   if (search) {
-    where.push('(b.title LIKE ? OR b.author LIKE ? OR b.isbn = ?)');
-    params.push(`%${search}%`, `%${search}%`, search);
+    where.push('(b.title LIKE ? OR b.author LIKE ? OR b.notes LIKE ? OR b.isbn = ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, search);
   }
   if (filter === 'available') where.push('l.id IS NULL');
   if (filter === 'mine') { where.push('b.owner_id = ?'); params.push(memberId); }

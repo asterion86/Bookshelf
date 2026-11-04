@@ -24,8 +24,9 @@ export function layout({ siteName = 'Bookshelf', title, member, body }) {
       <nav>
         <a href="/books/new">Add a book</a>
         <a href="/members">Members</a>
+        <a href="/account">${member.display_name}</a>
         <form method="post" action="/logout" class="inline">
-          <button class="link">Log out ${member.display_name}</button>
+          <button class="link">Log out</button>
         </form>
       </nav>` : ''}
   </header>
@@ -56,7 +57,7 @@ const FILTERS = [
 export function bookList({ books, q, filter }) {
   return html`
     <form class="search" method="get" action="/">
-      <input type="search" name="q" value="${q}" placeholder="Search title, author or ISBN">
+      <input type="search" name="q" value="${q}" placeholder="Search title, author, ISBN or notes">
       <input type="hidden" name="filter" value="${filter}">
       <button>Search</button>
     </form>
@@ -147,11 +148,16 @@ export function bookDetail({ book, member, members, history }) {
     </section>`;
 }
 
-export function bookForm({ book = {}, action, heading, error }) {
+// mode is 'new' or 'edit'. `added` is the book just saved from this form, so
+// several books can be added in a row.
+export function bookForm({ book = {}, mode, action, heading, error, added }) {
   return html`
     <h1>${heading}</h1>
+    ${added ? html`
+      <p class="notice">Added <a href="/books/${added.id}">${added.title}</a>. Add another below.</p>` : ''}
     ${error ? html`<p class="error">${error}</p>` : ''}
-    <form method="post" action="${action}" enctype="multipart/form-data" class="stack" id="book-form">
+    <form method="post" action="${action}" enctype="multipart/form-data" class="stack" id="book-form"
+          data-mode="${mode}" ${mode === 'new' ? html`autocomplete="off"` : ''}>
       <label>ISBN <span class="muted small">(optional — fills in the rest)</span>
         <span class="row">
           <input name="isbn" value="${book.isbn ?? ''}" inputmode="numeric" autocomplete="off">
@@ -195,6 +201,44 @@ export function membersPage({ members }) {
           <tr><td>${m.display_name}</td><td>${m.owned}</td><td>${m.holding}</td></tr>`)}
       </tbody>
     </table>`;
+}
+
+// `values` refills the details form after a failed save; `saved` says which
+// form just succeeded.
+export function accountPage({ member, values = {}, detailsError, passwordError, saved }) {
+  const displayName = values.display_name ?? member.display_name;
+  const username = values.username ?? member.username;
+  return html`
+    <h1>Your account</h1>
+
+    <section class="account-section">
+      <h2>Your details</h2>
+      ${saved === 'details' ? html`<p class="notice">Details saved.</p>` : ''}
+      ${detailsError ? html`<p class="error">${detailsError}</p>` : ''}
+      <form method="post" action="/account" class="stack">
+        <label>Your name <input name="display_name" value="${displayName}" required></label>
+        <label>Username <span class="muted small">(what you log in with)</span>
+          <input name="username" value="${username}" autocomplete="username" required>
+        </label>
+        <button class="primary">Save details</button>
+      </form>
+    </section>
+
+    <section class="account-section">
+      <h2>Change password</h2>
+      ${saved === 'password' ? html`<p class="notice">Password changed. You’ve been logged out everywhere else.</p>` : ''}
+      ${passwordError ? html`<p class="error">${passwordError}</p>` : ''}
+      <form method="post" action="/account/password" class="stack">
+        <input type="text" name="username" value="${member.username}" autocomplete="username" hidden>
+        <label>Current password
+          <input name="current_password" type="password" autocomplete="current-password" required>
+        </label>
+        <label>New password <span class="muted small">(at least 8 characters)</span>
+          <input name="new_password" type="password" minlength="8" autocomplete="new-password" required>
+        </label>
+        <button class="primary">Change password</button>
+      </form>
+    </section>`;
 }
 
 export function loginPage({ error, username = '' }) {
